@@ -30,6 +30,47 @@ def detect_platform(url_or_path: str) -> str:
         return "local"
     return "web"
 
+def extract_stream_name_from_url(url_or_path: str) -> Tuple[str, str]:
+    """
+    Instantly derives an initial human-readable stream/channel title and platform from the URL
+    without waiting for network probes.
+    """
+    from urllib.parse import urlparse
+    platform = detect_platform(url_or_path)
+    if platform == "local":
+        return Path(url_or_path).stem or "Local Video", "local"
+
+    try:
+        parsed = urlparse(url_or_path)
+        path = parsed.path.strip("/")
+        parts = [p for p in path.split("/") if p]
+
+        if platform == "twitch":
+            if len(parts) >= 2 and parts[0] == "videos":
+                return f"Twitch VOD #{parts[1]}", "twitch"
+            elif parts:
+                return f"{parts[0].title()} Twitch Stream", "twitch"
+            return "Twitch Live Stream", "twitch"
+
+        elif platform == "kick":
+            if parts:
+                return f"{parts[0].title()} Kick Stream", "kick"
+            return "Kick Stream", "kick"
+
+        elif platform == "youtube":
+            if "watch" in parsed.path:
+                from urllib.parse import parse_qs
+                qs = parse_qs(parsed.query)
+                v_id = qs.get("v", [""])[0]
+                if v_id:
+                    return f"YouTube Video ({v_id})", "youtube"
+            elif parts:
+                return f"YouTube Video ({parts[-1]})", "youtube"
+            return "YouTube Stream / Video", "youtube"
+    except Exception:
+        pass
+    return f"{platform.title()} Stream", platform
+
 def probe_file_info(file_path: str) -> Dict[str, Any]:
     """Uses ffprobe to extract duration, width, height, fps, and audio tracks."""
     cmd = [
@@ -65,6 +106,7 @@ async def ingest_media(
     project_id: str,
     storage_saver_override: Optional[bool] = None,
     live_capture_seconds: int = 600,
+    on_meta_cb: Optional[Any] = None,
     progress_cb: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
@@ -128,6 +170,12 @@ async def ingest_media(
                 title = meta.get("title", f"{platform.title()} Video")
                 duration = float(meta.get("duration", 0.0) or 0.0)
                 is_live_stream = bool(meta.get("is_live", False) or meta.get("live_status") == "is_live")
+                if on_meta_cb:
+                    import asyncio
+                    if asyncio.iscoroutinefunction(on_meta_cb):
+                        await on_meta_cb({"title": title, "duration": duration, "platform": platform, "is_live_stream": is_live_stream})
+                    else:
+                        on_meta_cb({"title": title, "duration": duration, "platform": platform, "is_live_stream": is_live_stream})
         except Exception as e:
             logger.warning(f"Metadata dump failed, continuing: {e}")
 

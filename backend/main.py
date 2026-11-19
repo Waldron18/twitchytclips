@@ -29,7 +29,7 @@ from backend.database import (
 )
 from backend.hardware_profiler import detect_hardware_profile, get_free_disk_space_gb
 from backend.queue_manager import job_queue
-from backend.ingest import ingest_media, probe_file_info
+from backend.ingest import ingest_media, probe_file_info, extract_stream_name_from_url
 from backend.transcribe import run_transcription
 from backend.hype_detector import detect_hype_moments
 from backend.audio_master import extract_video_segment, process_audio_mastering
@@ -112,7 +112,36 @@ async def run_full_pipeline(project_id: str, source_url: str, storage_saver: Opt
 
     # Step 1: Ingestion
     live_secs = max(60, min(live_capture_duration_minutes * 60, 3600))
-    ingest_res = await ingest_media(source_url, project_id, storage_saver_override=storage_saver, live_capture_seconds=live_secs, progress_cb=progress_cb)
+
+    async def handle_meta_extracted(meta_info: dict):
+        live_prefix = "[LIVE] " if meta_info.get("is_live_stream") else ""
+        probed_title = f"{live_prefix}{meta_info.get('title', 'Video Project')}"
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                update(ProjectModel)
+                .where(ProjectModel.id == project_id)
+                .values(
+                    title=probed_title,
+                    duration=meta_info.get("duration", 0.0),
+                    platform=meta_info.get("platform", "web")
+                )
+            )
+            await session.commit()
+        await job_queue.broadcast_event("project_updated", {
+            "project_id": project_id,
+            "title": probed_title,
+            "duration": meta_info.get("duration", 0.0),
+            "platform": meta_info.get("platform", "web")
+        })
+
+    ingest_res = await ingest_media(
+        source_url,
+        project_id,
+        storage_saver_override=storage_saver,
+        live_capture_seconds=live_secs,
+        on_meta_cb=handle_meta_extracted,
+        progress_cb=progress_cb
+    )
 
     async with AsyncSessionLocal() as session:
         await session.execute(
@@ -341,9 +370,13 @@ async def create_project(body: CreateProjectRequest, db: AsyncSession = Depends(
     project_id = str(uuid.uuid4())
     job_id = str(uuid.uuid4())
 
+    initial_title, platform = extract_stream_name_from_url(body.source_url)
+
     new_project = ProjectModel(
         id=project_id,
         source_url=body.source_url,
+        title=initial_title,
+        platform=platform,
         status="created"
     )
     db.add(new_project)

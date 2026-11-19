@@ -72,6 +72,22 @@ export const App: React.FC = () => {
         // Refresh jobs and projects on updates
         api.getJobs().then(setJobs).catch(() => {});
 
+        if (evtType === 'project_updated') {
+          api.getProjects().then(setProjects).catch(() => {});
+          if (currentProject && currentProject.id === data.project_id) {
+            setCurrentProject((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    title: data.title,
+                    duration: data.duration ?? prev.duration,
+                    platform: data.platform ?? prev.platform,
+                  }
+                : null
+            );
+          }
+        }
+
         if (evtType === 'job_completed') {
           api.getProjects().then(setProjects).catch(() => {});
           if (currentProject) {
@@ -94,10 +110,19 @@ export const App: React.FC = () => {
       }
     };
 
-    // Polling interval fallback for active jobs
+    // Polling interval fallback for active jobs & project title/status refresh
     const interval = setInterval(() => {
       api.getJobs().then(setJobs).catch(() => {});
-    }, 3000);
+      if (currentProject && (currentProject.status !== 'ready' && currentProject.status !== 'failed')) {
+        api.getProject(currentProject.id).then((p) => {
+          setCurrentProject(p);
+          if (p.clips && p.clips.length > 0 && !selectedClip) {
+            setSelectedClip(p.clips[0]);
+          }
+        }).catch(() => {});
+        api.getProjects().then(setProjects).catch(() => {});
+      }
+    }, 2500);
 
     return () => {
       eventSource.close();
