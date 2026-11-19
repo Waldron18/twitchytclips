@@ -181,13 +181,14 @@ async def ingest_media(
 
         # Step 2: Handle Live Streams vs VODs
         if is_live_stream or duration <= 0.0:
-            # Active Live Stream: capture a rolling window of `live_capture_seconds`
-            capture_dur = max(60, min(live_capture_seconds, 3600))
+            # Active Live Stream: capture a rolling window of `live_capture_seconds` (default 45-60s)
+            capture_dur = max(20, min(live_capture_seconds, 3600))
             duration = float(capture_dur)
             title = f"[LIVE] {title}"
 
+            dur_str = f"{int(capture_dur)}s" if capture_dur < 60 else f"{round(capture_dur / 60, 1)}m"
             if progress_cb:
-                await progress_cb(20.0, f"Recording live stream window ({int(capture_dur // 60)} minutes)...")
+                await progress_cb(20.0, f"Recording live stream window ({dur_str})...")
 
             # Resolve direct HLS stream URL using yt-dlp -g
             cmd_get_url = ["python", "-m", "yt_dlp", "-g", source_url_or_path]
@@ -198,30 +199,20 @@ async def ingest_media(
             stream_urls = proc_url.stdout.strip().splitlines()
             live_stream_url = stream_urls[0]
 
-            # In Storage Saver mode, capture audio stream directly with FFmpeg -t
-            if storage_saver:
-                cmd_rec = [
-                    "ffmpeg", "-y",
-                    "-i", live_stream_url,
-                    "-t", str(capture_dur),
-                    "-vn", "-c:a", "aac", "-b:a", "192k",
-                    audio_path
-                ]
-                subprocess.run(cmd_rec, check=True, timeout=capture_dur + 30)
-            else:
-                # Capture both video and audio
-                v_out = str(project_dir / "live_video.mp4")
-                cmd_rec = [
-                    "ffmpeg", "-y",
-                    "-i", live_stream_url,
-                    "-t", str(capture_dur),
-                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-                    v_out
-                ]
-                subprocess.run(cmd_rec, check=True, timeout=capture_dur + 30)
-                video_path = v_out
-                # Extract audio
-                subprocess.run(["ffmpeg", "-y", "-i", v_out, "-vn", "-c:a", "aac", audio_path], check=True)
+            # ALWAYS capture video+audio for live streams so clips can be extracted instantly from local disk
+            v_out = str(project_dir / "live_video.mp4")
+            cmd_rec = [
+                "ffmpeg", "-y",
+                "-i", live_stream_url,
+                "-t", str(capture_dur),
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                v_out
+            ]
+            subprocess.run(cmd_rec, check=True, timeout=capture_dur + 30)
+            video_path = v_out
+
+            # Instant audio extraction from recorded local video
+            subprocess.run(["ffmpeg", "-y", "-i", v_out, "-vn", "-c:a", "aac", audio_path], check=True)
 
         else:
             # Standard VOD / Pre-recorded stream

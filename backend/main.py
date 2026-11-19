@@ -73,7 +73,8 @@ class CreateProjectRequest(BaseModel):
     source_url: str
     storage_saver: Optional[bool] = None
     target_clips: int = 5
-    live_capture_duration_minutes: Optional[int] = 10
+    live_capture_duration_minutes: Optional[int] = 1
+    live_capture_seconds: Optional[int] = None
 
 class UpdateClipRequest(BaseModel):
     title: Optional[str] = None
@@ -91,7 +92,15 @@ class OverrideTierRequest(BaseModel):
 # Background Pipeline Workflows
 # -------------------------------------------------------------
 
-async def run_full_pipeline(project_id: str, source_url: str, storage_saver: Optional[bool], target_clips: int, live_capture_duration_minutes: int = 10, progress_cb=None):
+async def run_full_pipeline(
+    project_id: str,
+    source_url: str,
+    storage_saver: Optional[bool],
+    target_clips: int,
+    live_capture_duration_minutes: int = 1,
+    live_capture_seconds: Optional[int] = None,
+    progress_cb=None
+):
     """
     Executes the complete video-to-clips pipeline strictly sequentially:
     1. Media Ingest (audio first if storage saver; handles live streams or VODs)
@@ -111,7 +120,10 @@ async def run_full_pipeline(project_id: str, source_url: str, storage_saver: Opt
         await session.commit()
 
     # Step 1: Ingestion
-    live_secs = max(60, min(live_capture_duration_minutes * 60, 3600))
+    if live_capture_seconds:
+        live_secs = max(20, min(live_capture_seconds, 3600))
+    else:
+        live_secs = max(20, min(live_capture_duration_minutes * 60, 3600))
 
     async def handle_meta_extracted(meta_info: dict):
         live_prefix = "[LIVE] " if meta_info.get("is_live_stream") else ""
@@ -393,7 +405,8 @@ async def create_project(body: CreateProjectRequest, db: AsyncSession = Depends(
         source_url=body.source_url,
         storage_saver=body.storage_saver,
         target_clips=body.target_clips,
-        live_capture_duration_minutes=body.live_capture_duration_minutes or 10
+        live_capture_duration_minutes=body.live_capture_duration_minutes or 1,
+        live_capture_seconds=body.live_capture_seconds
     )
 
     return {"project_id": project_id, "job_id": job_id, "status": "enqueued"}
@@ -533,6 +546,18 @@ async def list_jobs(db: AsyncSession = Depends(get_db_session)):
     res = await db.execute(select(JobModel).order_by(JobModel.created_at.desc()).limit(20))
     jobs = res.scalars().all()
     return [j.to_dict() for j in jobs]
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    """Cancels a specific background job."""
+    success = await job_queue.cancel_job(job_id)
+    return {"job_id": job_id, "success": success}
+
+@app.post("/api/jobs/clear")
+async def clear_all_jobs():
+    """Cancels all active and queued jobs and resets the pipeline queue."""
+    cleared = await job_queue.clear_all_jobs()
+    return {"cleared": cleared}
 
 @app.get("/api/jobs/stream")
 async def stream_job_events():

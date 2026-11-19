@@ -20,7 +20,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
   const [file, setFile] = useState<File | null>(null);
   const [storageSaver, setStorageSaver] = useState<boolean>(defaultStorageSaver);
   const [targetClips, setTargetClips] = useState<number>(5);
-  const [liveCaptureMinutes, setLiveCaptureMinutes] = useState<number>(10);
+  const [liveCaptureSeconds, setLiveCaptureSeconds] = useState<number>(45);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,7 +47,14 @@ export const IngestModal: React.FC<IngestModalProps> = ({
         if (!url.trim()) {
           throw new Error('Please enter a valid video stream URL');
         }
-        const res = await api.createProject(url.trim(), storageSaver, targetClips, liveCaptureMinutes);
+        const liveMinutes = Math.max(1, Math.ceil(liveCaptureSeconds / 60));
+        const res = await api.createProject(
+          url.trim(),
+          storageSaver,
+          targetClips,
+          liveMinutes,
+          isLive ? liveCaptureSeconds : undefined
+        );
         onProjectCreated(res.project_id, res.job_id);
       } else {
         if (!file) {
@@ -151,29 +158,35 @@ export const IngestModal: React.FC<IngestModalProps> = ({
                       <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                       <span>Live Stream Detected</span>
                     </span>
-                    <span className="text-[10px] text-zinc-400">Capture Rolling Window</span>
+                    <span className="text-[10px] text-zinc-400 font-mono">⚡ High-Speed Clip</span>
                   </div>
                   <p className="text-[11px] text-zinc-300">
-                    ClipForge will record the live stream for your chosen duration, then immediately find and extract the top clips:
+                    Live streams record in real-time. Choose your capture window to extract viral 9:16 short clips:
                   </p>
                   <div className="flex items-center space-x-2 pt-1">
-                    {[1, 3, 5, 10, 15].map((m) => (
+                    {[
+                      { sec: 30, label: '30s (Ultra)' },
+                      { sec: 45, label: '45s (Fast)' },
+                      { sec: 60, label: '1m (Standard)' },
+                      { sec: 120, label: '2m' },
+                      { sec: 300, label: '5m' }
+                    ].map(({ sec, label }) => (
                       <button
-                        key={m}
+                        key={sec}
                         type="button"
-                        onClick={() => setLiveCaptureMinutes(m)}
+                        onClick={() => setLiveCaptureSeconds(sec)}
                         className={`flex-1 py-1 text-xs font-bold rounded-lg border transition ${
-                          liveCaptureMinutes === m
+                          liveCaptureSeconds === sec
                             ? 'bg-purple-600 border-purple-400 text-white shadow-sm'
                             : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white'
                         }`}
                       >
-                        {m}m
+                        {label}
                       </button>
                     ))}
                   </div>
                   <div className="text-[10px] text-zinc-400 italic pt-0.5">
-                    💡 Tip: If you want to clip past moments, paste the VOD link from <span className="text-purple-300 font-mono">twitch.tv/channel/videos</span>
+                    💡 Tip: For past stream moments without waiting, paste the VOD URL from <span className="text-purple-300 font-mono">twitch.tv/channel/videos</span>
                   </div>
                 </div>
               )}

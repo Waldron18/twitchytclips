@@ -36,7 +36,8 @@ export const api = {
     sourceUrl: string,
     storageSaver?: boolean,
     targetClips: number = 5,
-    liveCaptureMinutes: number = 10
+    liveCaptureMinutes: number = 1,
+    liveCaptureSeconds?: number
   ): Promise<{ project_id: string; job_id: string }> {
     const res = await fetch(`${API_BASE}/projects/create`, {
       method: 'POST',
@@ -45,7 +46,8 @@ export const api = {
         source_url: sourceUrl,
         storage_saver: storageSaver,
         target_clips: targetClips,
-        live_capture_duration_minutes: liveCaptureMinutes
+        live_capture_duration_minutes: liveCaptureMinutes,
+        live_capture_seconds: liveCaptureSeconds
       })
     });
     if (!res.ok) throw new Error('Failed to create project');
@@ -99,6 +101,16 @@ export const api = {
 
   async getJobs(): Promise<Job[]> {
     const res = await fetch(`${API_BASE}/jobs`);
+    return res.json();
+  },
+
+  async cancelJob(jobId: string): Promise<{ job_id: string; success: boolean }> {
+    const res = await fetch(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' });
+    return res.json();
+  },
+
+  async clearJobs(): Promise<{ cleared: number }> {
+    const res = await fetch(`${API_BASE}/jobs/clear`, { method: 'POST' });
     return res.json();
   },
 

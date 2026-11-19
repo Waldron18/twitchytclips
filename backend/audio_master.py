@@ -3,6 +3,7 @@ audio_master.py - Video segment extraction, copyright-safe audio separation,
 royalty-free background music mixing, and -14 LUFS loudness mastering.
 """
 import os
+import sys
 import shutil
 import subprocess
 import logging
@@ -29,7 +30,7 @@ def extract_video_segment(
     output_path = str(Path(output_path).resolve())
 
     if is_local_file or os.path.exists(source_url_or_path):
-        # Local video file on disk
+        # Local video file on disk: instant seek and extraction
         cmd = [
             "ffmpeg", "-y", "-threads", "0",
             "-ss", str(start_time),
@@ -46,7 +47,7 @@ def extract_video_segment(
         # Online stream URL: download only sections to save disk space
         section_arg = f"*{int(start_time)}-{int(end_time)}"
         cmd = [
-            "yt-dlp",
+            sys.executable, "-m", "yt_dlp",
             "--download-sections", section_arg,
             "--force-keyframes-at-cuts",
             "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",

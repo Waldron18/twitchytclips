@@ -6,6 +6,7 @@ Includes a robust offline rule-based NLP fallback if Ollama is not active.
 import json
 import logging
 import re
+import time
 from typing import Dict, Any, List, Optional
 import requests
 from backend.config import OLLAMA_BASE_URL
@@ -16,17 +17,26 @@ logger = logging.getLogger("clipforge.ollama")
 class OllamaClient:
     def __init__(self, base_url: str = OLLAMA_BASE_URL):
         self.base_url = base_url.rstrip("/")
+        self._last_online_check = 0.0
+        self._is_online_cached = False
 
     def is_online(self) -> bool:
+        now = time.time()
+        if now - self._last_online_check < 15.0:
+            return self._is_online_cached
         try:
-            r = requests.get(f"{self.base_url}/api/tags", timeout=2)
-            return r.status_code == 200
+            r = requests.get(f"{self.base_url}/api/tags", timeout=1.0)
+            self._is_online_cached = (r.status_code == 200)
         except Exception:
-            return False
+            self._is_online_cached = False
+        self._last_online_check = now
+        return self._is_online_cached
 
     def get_installed_models(self) -> List[str]:
+        if not self.is_online():
+            return []
         try:
-            r = requests.get(f"{self.base_url}/api/tags", timeout=3)
+            r = requests.get(f"{self.base_url}/api/tags", timeout=2.0)
             if r.status_code == 200:
                 models = r.json().get("models", [])
                 return [m.get("name") for m in models if m.get("name")]
@@ -69,7 +79,7 @@ class OllamaClient:
         }
 
         try:
-            res = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=45)
+            res = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=15)
             if res.status_code == 200:
                 return res.json().get("response", "").strip()
         except Exception as e:
@@ -81,6 +91,9 @@ class OllamaClient:
         Uses Ollama LLM to evaluate transcript windows for viral potential.
         Returns ranked clip recommendations with start/end timestamps and hook summaries.
         """
+        if not self.is_online():
+            return self._heuristic_hook_detection(transcript_segments, max_candidates)
+
         # Prepare readable transcript with timestamp blocks
         formatted_blocks = []
         for seg in transcript_segments:
@@ -130,6 +143,15 @@ class OllamaClient:
 
     def generate_clip_metadata(self, clip_text: str) -> Dict[str, str]:
         """Generates viral title, description, and hashtags for an extracted clip."""
+        if not self.is_online():
+            words = clip_text.split()
+            short_title = " ".join(words[:6]).upper() + " 😱🔥" if words else "VIRAL MOMENT 🔥"
+            return {
+                "title": short_title if len(short_title) < 55 else short_title[:50] + "... 🔥",
+                "description": "You won't believe what happened here! Watch until the end. Like and subscribe for more daily clips!",
+                "hashtags": "#shorts #reels #gaming #viral #funny #clipforge"
+            }
+
         system_prompt = (
             "You are a social media copywriter. Generate high-CTR titles, engaging captions, "
             "and trending hashtags for YouTube Shorts and Instagram Reels."

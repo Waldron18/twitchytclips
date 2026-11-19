@@ -183,7 +183,7 @@ export const App: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
         {/* Real-time Job Execution Queue */}
-        <QueueTimeline jobs={jobs} />
+        <QueueTimeline jobs={jobs} onRefresh={() => api.getJobs().then(setJobs)} />
 
         {/* Hero Section if No Projects exist yet */}
         {projects.length === 0 && (

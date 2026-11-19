@@ -1,15 +1,39 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Job } from '../types';
-import { Loader2, CheckCircle2, AlertCircle, Clock, Zap } from 'lucide-react';
+import { Loader2, Clock, Zap, X, Trash2 } from 'lucide-react';
+import { api } from '../services/api';
 
 interface QueueTimelineProps {
   jobs: Job[];
+  onRefresh?: () => void;
 }
 
-export const QueueTimeline: React.FC<QueueTimelineProps> = ({ jobs }) => {
+export const QueueTimeline: React.FC<QueueTimelineProps> = ({ jobs, onRefresh }) => {
+  const [clearing, setClearing] = useState(false);
   const activeJobs = jobs.filter((j) => j.status === 'running' || j.status === 'queued');
 
   if (activeJobs.length === 0) return null;
+
+  const handleClearAll = async () => {
+    try {
+      setClearing(true);
+      await api.clearJobs();
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      console.error('Failed to clear queue', e);
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const handleCancelOne = async (jobId: string) => {
+    try {
+      await api.cancelJob(jobId);
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      console.error('Failed to cancel job', e);
+    }
+  };
 
   return (
     <div className="bg-zinc-900/90 border border-brand-500/30 rounded-2xl p-4 shadow-xl backdrop-blur-md mb-6 animate-fadeIn">
@@ -20,16 +44,27 @@ export const QueueTimeline: React.FC<QueueTimelineProps> = ({ jobs }) => {
             Active Sequential Pipeline ({activeJobs.length} {activeJobs.length === 1 ? 'task' : 'tasks'})
           </h4>
         </div>
-        <span className="text-[11px] text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded font-mono">
-          VRAM Protection: 1 Task At A Time
-        </span>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleClearAll}
+            disabled={clearing}
+            className="flex items-center space-x-1 text-[11px] text-red-400 hover:text-red-300 bg-red-950/40 hover:bg-red-900/50 border border-red-800/40 px-2.5 py-0.5 rounded-lg transition"
+            title="Cancel all stuck and queued jobs"
+          >
+            <Trash2 className="w-3 h-3" />
+            <span>Reset Queue</span>
+          </button>
+          <span className="text-[11px] text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded font-mono hidden sm:inline-block">
+            VRAM Protection: 1 Task At A Time
+          </span>
+        </div>
       </div>
 
       <div className="space-y-3">
         {activeJobs.map((job) => {
           const isRunning = job.status === 'running';
           return (
-            <div key={job.id} className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800/80">
+            <div key={job.id} className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800/80 relative group">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center space-x-2">
                   {isRunning ? (
@@ -41,9 +76,18 @@ export const QueueTimeline: React.FC<QueueTimelineProps> = ({ jobs }) => {
                     {job.job_type === 'pipeline' ? 'Full Video Processing' : 'Rendering 9:16 Short'}
                   </span>
                 </div>
-                <span className="text-xs font-mono font-bold text-brand-400">
-                  {job.progress}%
-                </span>
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs font-mono font-bold text-brand-400">
+                    {job.progress}%
+                  </span>
+                  <button
+                    onClick={() => handleCancelOne(job.id)}
+                    className="text-zinc-500 hover:text-red-400 p-0.5 rounded hover:bg-zinc-800 transition"
+                    title="Cancel this task"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               {/* Progress Bar */}

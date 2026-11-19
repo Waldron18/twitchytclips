@@ -27,8 +27,75 @@ class JobQueueManager:
         """Starts the sequential background worker."""
         if not self._is_running:
             self._is_running = True
+            # Clean up stale jobs left in running or queued state from previous crash/restart
+            try:
+                async with AsyncSessionLocal() as session:
+                    await session.execute(
+                        update(JobModel)
+                        .where(JobModel.status.in_(["running", "queued"]))
+                        .values(
+                            status="failed",
+                            error="Interrupted by server restart",
+                            current_step="Terminated on restart",
+                            updated_at=datetime.now(timezone.utc)
+                        )
+                    )
+                    await session.commit()
+                logger.info("Cleaned up stale jobs from previous sessions.")
+            except Exception as e:
+                logger.warning(f"Error cleaning stale jobs: {e}")
+
             self._worker_task = asyncio.create_task(self._process_loop())
             logger.info("JobQueueManager background worker started.")
+
+    async def cancel_job(self, job_id: str) -> bool:
+        """Cancels a specific job and broadcasts the status update."""
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                update(JobModel)
+                .where(JobModel.id == job_id)
+                .values(
+                    status="failed",
+                    error="Cancelled by user",
+                    current_step="Cancelled by user",
+                    updated_at=datetime.now(timezone.utc)
+                )
+            )
+            await session.commit()
+
+        await self.broadcast_event("job_progress", {
+            "job_id": job_id,
+            "status": "failed",
+            "progress": 0.0,
+            "current_step": "Cancelled by user"
+        })
+        return True
+
+    async def clear_all_jobs(self) -> int:
+        """Empties in-memory queue and marks all queued/running jobs as cancelled."""
+        cleared_count = 0
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+                cleared_count += 1
+            except Exception:
+                break
+
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                update(JobModel)
+                .where(JobModel.status.in_(["running", "queued"]))
+                .values(
+                    status="failed",
+                    error="Cleared by user",
+                    current_step="Cancelled",
+                    updated_at=datetime.now(timezone.utc)
+                )
+            )
+            await session.commit()
+
+        await self.broadcast_event("queue_cleared", {"cleared": True})
+        return cleared_count
 
     async def stop(self):
         """Stops the worker gracefully."""
