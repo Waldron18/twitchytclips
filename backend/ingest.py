@@ -146,7 +146,7 @@ async def ingest_media(
             await progress_cb(15.0, "Extracting audio track with FFmpeg...")
 
         cmd = [
-            "ffmpeg", "-y", "-i", local_path,
+            "ffmpeg", "-y", "-threads", "0", "-i", local_path,
             "-vn", "-c:a", "aac", "-b:a", "192k",
             audio_path
         ]
@@ -231,6 +231,7 @@ async def ingest_media(
             ytdlp_audio_out = str(project_dir / "audio.%(ext)s")
             cmd_audio = [
                 "python", "-m", "yt_dlp",
+                "-N", "4",
                 "-x",
                 "--audio-format", "m4a",
                 "--no-playlist",

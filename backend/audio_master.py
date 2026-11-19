@@ -31,7 +31,7 @@ def extract_video_segment(
     if is_local_file or os.path.exists(source_url_or_path):
         # Local video file on disk
         cmd = [
-            "ffmpeg", "-y",
+            "ffmpeg", "-y", "-threads", "0",
             "-ss", str(start_time),
             "-to", str(end_time),
             "-i", source_url_or_path,
@@ -137,7 +137,7 @@ def process_audio_mastering(
         )
 
         cmd = [
-            "ffmpeg", "-y",
+            "ffmpeg", "-y", "-threads", "0",
             "-i", input_vocal,
             "-i", bgm_path,
             "-filter_complex", filter_complex,

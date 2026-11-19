@@ -78,14 +78,15 @@ def run_transcription(
         progress_cb(5.0, f"Loading Whisper model ({model_size}) on {device.upper()}...")
 
     model = None
+    cpu_threads = os.cpu_count() or 4
     try:
         try:
-            model = WhisperModel(model_size, device=device, compute_type=compute_type)
+            model = WhisperModel(model_size, device=device, compute_type=compute_type, cpu_threads=cpu_threads)
         except Exception as e:
             logger.warning(f"Failed to load Whisper on {device} ({e}). Falling back to CPU int8...")
             if progress_cb:
                 progress_cb(10.0, "Falling back to CPU Whisper (safe mode)...")
-            model = WhisperModel("small.en", device="cpu", compute_type="int8")
+            model = WhisperModel("small.en", device="cpu", compute_type="int8", cpu_threads=cpu_threads)
 
         if progress_cb:
             progress_cb(20.0, "Transcribing speech & aligning word boundaries...")
@@ -93,13 +94,16 @@ def run_transcription(
         # Decode audio waveform directly via FFmpeg to bypass PyAV version quirks
         audio_array = load_audio_waveform(audio_path)
 
-        # Run transcription with word timestamps on waveform array
+        # High-Speed Greedy Word Alignment (beam_size=1, best_of=1, condition_on_previous_text=False)
         segments_generator, info = model.transcribe(
             audio_array,
-            beam_size=5,
+            beam_size=1,
+            best_of=1,
+            temperature=0.0,
+            condition_on_previous_text=False,
             word_timestamps=True,
             vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500),
+            vad_parameters=dict(min_silence_duration_ms=400),
             language=language
         )
 

@@ -14,11 +14,10 @@ from backend.hardware_profiler import detect_hardware_profile
 
 logger = logging.getLogger("clipforge.renderer")
 
-def detect_facecam_box(video_path: str, sample_count: int = 12) -> Optional[Dict[str, float]]:
+def detect_facecam_box(video_path: str, sample_count: int = 4) -> Optional[Dict[str, float]]:
     """
-    Samples frames from video and detects streamer webcam box.
-    Uses Haar Cascades if available in OpenCV, or multi-frame corner motion/variance analysis.
-    Returns normalized bounding box {x, y, w, h} (0.0 to 1.0) or default corner preset.
+    Fast corner motion/variance analysis across 4 sampled video frames.
+    Resizes frames to 320x180 for sub-50ms execution.
     """
     if not os.path.exists(video_path):
         return {"x": 0.03, "y": 0.05, "w": 0.35, "h": 0.35}
@@ -36,20 +35,8 @@ def detect_facecam_box(video_path: str, sample_count: int = 12) -> Optional[Dict
             cap.release()
             return {"x": 0.03, "y": 0.05, "w": 0.35, "h": 0.35}
 
-        # Check for Haar cascade in OpenCV
-        has_cascade = hasattr(cv2, "CascadeClassifier") and hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades")
-        face_cascade = None
-        if has_cascade:
-            try:
-                cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-                face_cascade = cv2.CascadeClassifier(cascade_path)
-            except Exception:
-                face_cascade = None
-
         frame_indices = [int(i * total_frames / max(sample_count, 1)) for i in range(sample_count)]
-        detected_boxes = []
-
-        prev_gray = None
+        prev_small = None
         corner_motion = {"top_left": 0.0, "top_right": 0.0, "bottom_left": 0.0, "bottom_right": 0.0}
 
         for idx in frame_indices:
@@ -58,50 +45,23 @@ def detect_facecam_box(video_path: str, sample_count: int = 12) -> Optional[Dict
             if not ret or frame is None:
                 continue
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Downsample for blazing fast variance computation
+            small = cv2.resize(frame, (320, 180), interpolation=cv2.INTER_NEAREST)
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
 
-            if face_cascade is not None:
-                faces = face_cascade.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=4, minSize=(40, 40))
-                for (fx, fy, fw, fh) in faces:
-                    norm_x = fx / width
-                    norm_y = fy / height
-                    norm_w = fw / width
-                    norm_h = fh / height
-                    pad_w = norm_w * 1.2
-                    pad_h = norm_h * 1.5
-                    box_x = max(0.0, norm_x - pad_w * 0.5)
-                    box_y = max(0.0, norm_y - pad_h * 0.3)
-                    box_w = min(1.0 - box_x, norm_w + pad_w)
-                    box_h = min(1.0 - box_y, norm_h + pad_h)
-                    detected_boxes.append((box_x, box_y, box_w, box_h))
+            if prev_small is not None:
+                diff = cv2.absdiff(gray, prev_small)
+                # 320x180: h_split=72, w_split=128
+                corner_motion["top_left"] += float(diff[0:72, 0:128].mean())
+                corner_motion["top_right"] += float(diff[0:72, 192:320].mean())
+                corner_motion["bottom_left"] += float(diff[108:180, 0:128].mean())
+                corner_motion["bottom_right"] += float(diff[108:180, 192:320].mean())
 
-            # Motion / temporal variance in corners
-            if prev_gray is not None:
-                diff = cv2.absdiff(gray, prev_gray)
-                ih, iw = int(height), int(width)
-                h_split, w_split = int(ih * 0.4), int(iw * 0.4)
-                corner_motion["top_left"] += float(diff[0:h_split, 0:w_split].mean())
-                corner_motion["top_right"] += float(diff[0:h_split, iw - w_split:iw].mean())
-                corner_motion["bottom_left"] += float(diff[ih - h_split:ih, 0:w_split].mean())
-                corner_motion["bottom_right"] += float(diff[ih - h_split:ih, iw - w_split:iw].mean())
-
-            prev_gray = gray
+            prev_small = gray
 
         cap.release()
 
-        if detected_boxes:
-            avg_x = sum(b[0] for b in detected_boxes) / len(detected_boxes)
-            avg_y = sum(b[1] for b in detected_boxes) / len(detected_boxes)
-            avg_w = sum(b[2] for b in detected_boxes) / len(detected_boxes)
-            avg_h = sum(b[3] for b in detected_boxes) / len(detected_boxes)
-            return {
-                "x": round(avg_x, 3),
-                "y": round(avg_y, 3),
-                "w": round(avg_w, 3),
-                "h": round(avg_h, 3)
-            }
-
-        # Select highest motion/variance corner if motion detected
+        # Select highest motion/variance corner
         best_corner = max(corner_motion, key=corner_motion.get)
         if best_corner == "top_right":
             return {"x": 0.62, "y": 0.05, "w": 0.35, "h": 0.35}
@@ -273,6 +233,7 @@ def render_vertical_clip(
     # Step 3: FFmpeg command construction
     cmd = [
         "ffmpeg", "-y",
+        "-threads", "0",
         "-i", video_segment_path,
         "-i", mastered_audio_path,
         "-filter_complex", full_filter,

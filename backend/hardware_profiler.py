@@ -159,27 +159,28 @@ def detect_hardware_profile(force_refresh: bool = False, override_tier: Optional
     # Profile specifications
     if tier == "LOW":
         whisper_model = "small.en"
-        # On low spec (e.g. MX150 / CPU), int8 on CPU or int8 on CUDA if torch allows
+        # On low spec (e.g. MX150 / CPU), int8 on CPU with max threads
         whisper_compute_type = "int8"
-        whisper_device = "cpu"  # CPU is safer and won't crash on 2GB MX150 CUDA 11.1
+        whisper_device = "cpu"
         ollama_model = "qwen2.5:1.5b"
         ffmpeg_video_encoder = "libx264"
-        ffmpeg_encoder_params = ["-preset", "veryfast", "-crf", "23"]
+        # Blazing fast render using ultrafast preset & all CPU threads
+        ffmpeg_encoder_params = ["-preset", "ultrafast", "-crf", "22", "-threads", "0"]
         storage_saver_mode = True
-        recommendations.append("Low-spec mode enabled: Using CPU Whisper (small.en) and x264 veryfast encoding.")
+        recommendations.append("High-Speed Mode: Multi-threaded greedy Whisper + x264 ultrafast encoding active.")
         recommendations.append("Storage Saver active: Audio-first ingestion + auto temp cleanup.")
         if free_disk_gb < 12.0:
             recommendations.append(f"Low free disk space detected ({free_disk_gb} GB). Aggressive temp scrubbing will run after each clip.")
 
     elif tier == "MID":
-        whisper_model = "large-v3-turbo"  # Fast, highly accurate, low footprint
+        whisper_model = "large-v3-turbo"
         whisper_compute_type = "int8"
         whisper_device = "cuda"
         ollama_model = "qwen3.5:4b"
         ffmpeg_video_encoder = "h264_nvenc"
-        ffmpeg_encoder_params = ["-preset", "p4", "-cq", "22"]
+        ffmpeg_encoder_params = ["-preset", "p2", "-cq", "22", "-threads", "0"]
         storage_saver_mode = False
-        recommendations.append("Mid-spec mode active: Hardware NVENC acceleration and int8 Whisper enabled.")
+        recommendations.append("Mid-spec High-Speed: Hardware NVENC acceleration and int8 Turbo Whisper enabled.")
 
     else:  # HIGH
         whisper_model = "large-v3-turbo"
@@ -187,9 +188,9 @@ def detect_hardware_profile(force_refresh: bool = False, override_tier: Optional
         whisper_device = "cuda"
         ollama_model = "qwen3.5:9b"
         ffmpeg_video_encoder = "h264_nvenc"
-        ffmpeg_encoder_params = ["-preset", "p5", "-cq", "20"]
+        ffmpeg_encoder_params = ["-preset", "p4", "-cq", "20", "-threads", "0"]
         storage_saver_mode = False
-        recommendations.append("High-spec mode active: Full NVENC p5 high-quality render & 9B LLM viral hook detection.")
+        recommendations.append("High-spec High-Speed: Full NVENC hardware acceleration & Turbo Whisper.")
 
     profile = HardwareProfile(
         tier=tier,

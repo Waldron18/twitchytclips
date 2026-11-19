@@ -157,7 +157,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
                     ClipForge will record the live stream for your chosen duration, then immediately find and extract the top clips:
                   </p>
                   <div className="flex items-center space-x-2 pt-1">
-                    {[5, 10, 15, 30].map((m) => (
+                    {[1, 3, 5, 10, 15].map((m) => (
                       <button
                         key={m}
                         type="button"
@@ -168,7 +168,7 @@ export const IngestModal: React.FC<IngestModalProps> = ({
                             : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white'
                         }`}
                       >
-                        {m} mins
+                        {m}m
                       </button>
                     ))}
                   </div>
